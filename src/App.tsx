@@ -6,7 +6,7 @@ import {
   doc, updateDoc, deleteDoc 
 } from "firebase/firestore";
 
-// --- 커스텀 훅: 로컬 스토리지 저장 (프로필/DM 유지) ---
+// --- 커스텀 훅: 로컬 스토리지 저장 (프로필 유지용) ---
 function useLocalStorage(key: string, initialValue: any) {
   const [storedValue, setStoredValue] = useState(() => {
     try {
@@ -53,7 +53,8 @@ export default function App() {
   const [homeChats, setHomeChats] = useState<any[]>([]); 
   const [liveChats, setLiveChats] = useState<any>({});   
   const [matesData, setMatesData] = useState<any>({ stadium: [], outside: [] }); 
-  const [balanceChats, setBalanceChats] = useState<any>({}); // 🔥 밸런스 게임 댓글방 데이터
+  const [balanceChats, setBalanceChats] = useState<any>({}); 
+  const [dms, setDms] = useState<any[]>([]); // 🔥 진짜 실시간 DM 저장소!
 
   // --- Firebase 실시간 리스너 ---
   useEffect(() => {
@@ -84,7 +85,6 @@ export default function App() {
       setMatesData(newMates);
     });
 
-    // 🔥 밸런스 게임 댓글 감시
     const qBal = query(collection(db, "balanceChats"), orderBy("createdAt", "asc"));
     const unsubBal = onSnapshot(qBal, (snapshot) => {
       const data: any = {};
@@ -96,7 +96,13 @@ export default function App() {
       setBalanceChats(data);
     });
 
-    return () => { unsubAll(); unsubLive(); unsubMates(); unsubBal(); };
+    // 🔥 실시간 DM 감시
+    const qDm = query(collection(db, "dms"), orderBy("createdAt", "asc"));
+    const unsubDm = onSnapshot(qDm, (snapshot) => {
+      setDms(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubAll(); unsubLive(); unsubMates(); unsubBal(); unsubDm(); };
   }, []);
   
   const [schedule, setSchedule] = useState([] as any[]);
@@ -104,8 +110,7 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // DM 상태
-  const [dmChats, setDmChats] = useLocalStorage('yagu_dm_chats_v1', {});
+  // DM 타겟 상태
   const [chatTarget, setChatTarget] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -199,12 +204,11 @@ export default function App() {
             {activeTab === 'cheer' && <CheerRoomView user={user} showToast={showToast} />} 
             {activeTab === 'mate' && <MateView user={user} onUserClick={setSelectedUser} showToast={showToast} mates={matesData} />}
             {activeTab === 'profile' && <ProfileView user={user} setUser={setUser} isFirstVisit={isFirstVisit} setIsFirstVisit={setIsFirstVisit} setActiveTab={setActiveTab} showToast={showToast} />}
+            {activeTab === 'game' && <GameView user={user} setActiveTab={setActiveTab} balanceChats={balanceChats} onUserClick={setSelectedUser} showToast={showToast} />}
             
-            {/* 🔥 오락실 컴포넌트 호출 (데이터 전달) */}
-            {activeTab === 'game' && <GameView user={user} setActiveTab={setActiveTab} balanceChats={balanceChats} showToast={showToast} onUserClick={setSelectedUser} />}
-            
-            {activeTab === 'dm_list' && <DMListView dmChats={dmChats} setActiveTab={setActiveTab} setChatTarget={setChatTarget} />}
-            {activeTab === 'dm_chat' && <DMChatView user={user} chatTarget={chatTarget} dmChats={dmChats} setDmChats={setDmChats} setActiveTab={setActiveTab} showToast={showToast} />}
+            {/* 🔥 실시간 DM 연결 */}
+            {activeTab === 'dm_list' && <DMListView user={user} dms={dms} setActiveTab={setActiveTab} setChatTarget={setChatTarget} />}
+            {activeTab === 'dm_chat' && <DMChatView user={user} chatTarget={chatTarget} dms={dms} setActiveTab={setActiveTab} showToast={showToast} />}
           </main>
 
           {/* 하단 네비게이션 */}
@@ -250,8 +254,17 @@ export default function App() {
   );
 }
 
-// --- 홈 화면 ---
+// --- 홈 화면 (🔥 명언 위젯 추가) ---
 function HomeView({ user, schedule, setActiveTab, isLoading, homeChats }: any) {
+  // 간단한 명언 리스트
+  const quotes = [
+    { text: "끝날 때까지는 끝난 게 아니다.", author: "요기 베라" },
+    { text: "공은 둥글고 경기는 9회말 2아웃부터다.", author: "야구 격언" },
+    { text: "야구는 실패의 스포츠다. 3할을 치면 훌륭한 타자다.", author: "테드 윌리엄스" },
+    { text: "투구는 영리하게, 타격은 멍청하게.", author: "야구 격언" }
+  ];
+  const todayQuote = quotes[new Date().getDate() % quotes.length];
+
   return (
     <div className="flex-1 w-full min-h-0 overflow-y-auto no-scrollbar space-y-6 animate-in fade-in">
       <header className="flex justify-center pt-3 pb-1 relative">
@@ -262,6 +275,14 @@ function HomeView({ user, schedule, setActiveTab, isLoading, homeChats }: any) {
           📬
         </button>
       </header>
+
+      {/* 🔥 명언 위젯 추가 */}
+      <section className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-5 shadow-lg text-white relative overflow-hidden flex flex-col justify-center">
+        <div className="absolute -right-2 -top-4 text-7xl opacity-10">⚾</div>
+        <h2 className="text-[10px] font-black text-emerald-400 mb-2 uppercase tracking-widest">Today's Quote</h2>
+        <p className="text-sm font-bold leading-relaxed break-keep-all">"{todayQuote.text}"</p>
+        <p className="text-xs text-slate-400 mt-2 text-right font-medium">- {todayQuote.author} -</p>
+      </section>
       
       <section className="bg-white/80 backdrop-blur-xl rounded-3xl py-5 border border-white shadow-lg overflow-hidden">
         <h2 className="text-base font-bold mb-4 text-slate-800 flex items-center gap-2 px-5">📅 전체 경기 일정</h2>
@@ -314,9 +335,17 @@ function HomeView({ user, schedule, setActiveTab, isLoading, homeChats }: any) {
   );
 }
 
-// --- DM 목록 뷰 ---
-function DMListView({ dmChats, setActiveTab, setChatTarget }: any) {
-  const targets = Object.keys(dmChats);
+// --- 🔥 진짜 실시간 DM 목록 뷰 ---
+function DMListView({ user, dms, setActiveTab, setChatTarget }: any) {
+  // 내가 포함된 DM만 필터링해서, 대화 상대별로 마지막 메시지 추출
+  const myDms = dms.filter((d: any) => d.sender === user.name || d.receiver === user.name);
+  const targetsMap = new Map();
+  myDms.forEach((d: any) => {
+    const partner = d.sender === user.name ? d.receiver : d.sender;
+    targetsMap.set(partner, d);
+  });
+  const targetList = Array.from(targetsMap.entries()).reverse(); // 최근순
+
   return (
     <div className="flex-1 w-full min-h-0 flex flex-col animate-in slide-in-from-right-4">
       <div className="flex items-center gap-3 mb-4 mt-2 px-1 shrink-0">
@@ -324,36 +353,46 @@ function DMListView({ dmChats, setActiveTab, setChatTarget }: any) {
         <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text leading-none pt-1">📬 내 우편함</h2>
       </div>
       <div className="flex-1 bg-white/80 backdrop-blur-xl rounded-3xl p-5 shadow-lg overflow-y-auto border border-white no-scrollbar">
-        {targets.length === 0 && <div className="text-center text-slate-400 text-xs mt-10 font-bold flex flex-col items-center"><span className="text-4xl mb-3 opacity-50">📭</span>아직 나눈 DM이 없어요!</div>}
-        {targets.map((target) => {
-          const lastMsg = dmChats[target][dmChats[target].length - 1];
-          return (
-            <div key={target} onClick={() => { setChatTarget(target); setActiveTab('dm_chat'); }} className="flex items-center gap-4 p-4 mb-3 bg-white rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-emerald-200 transition-all">
-              <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center text-xl shadow-inner shrink-0 border border-emerald-100">⚾</div>
-              <div className="flex-1 overflow-hidden">
-                <h3 className="font-black text-slate-800 text-sm mb-1 truncate">@{target}</h3>
-                <p className="text-xs text-slate-500 truncate">{lastMsg.text}</p>
-              </div>
+        {targetList.length === 0 && <div className="text-center text-slate-400 text-xs mt-10 font-bold flex flex-col items-center"><span className="text-4xl mb-3 opacity-50">📭</span>아직 나눈 DM이 없어요!</div>}
+        {targetList.map(([target, lastMsg]: any) => (
+          <div key={target} onClick={() => { setChatTarget(target); setActiveTab('dm_chat'); }} className="flex items-center gap-4 p-4 mb-3 bg-white rounded-2xl shadow-sm border border-slate-100 cursor-pointer hover:border-emerald-200 transition-all">
+            <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center text-xl shadow-inner shrink-0 border border-emerald-100">⚾</div>
+            <div className="flex-1 overflow-hidden">
+              <h3 className="font-black text-slate-800 text-sm mb-1 truncate">@{target}</h3>
+              <p className="text-xs text-slate-500 truncate">{lastMsg.text}</p>
             </div>
-          )
-        })}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// --- 1:1 DM 채팅 뷰 ---
-function DMChatView({ user, chatTarget, dmChats, setDmChats, setActiveTab, showToast }: any) {
+// --- 🔥 진짜 실시간 1:1 DM 채팅 뷰 ---
+function DMChatView({ user, chatTarget, dms, setActiveTab, showToast }: any) {
   const [msg, setMsg] = useState('');
-  const chatList = dmChats[chatTarget] || [];
   const chatEndRef = useRef<HTMLDivElement>(null);
+  
+  // 나와 상대방이 주고받은 메시지만 필터링
+  const chatList = dms.filter((d: any) => 
+    (d.sender === user.name && d.receiver === chatTarget) || 
+    (d.sender === chatTarget && d.receiver === user.name)
+  );
+
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatList]);
 
-  const send = () => {
+  const send = async () => {
     if(!msg.trim()) { showToast("메시지를 입력해주세요!"); return; }
-    const newChat = { user: user.name, text: msg.trim(), team: user.team, time: Date.now() };
-    setDmChats({ ...dmChats, [chatTarget]: [...chatList, newChat] });
-    setMsg('');
+    try {
+      await addDoc(collection(db, "dms"), {
+        sender: user.name,
+        receiver: chatTarget,
+        text: msg.trim(),
+        team: user.team,
+        createdAt: serverTimestamp()
+      });
+      setMsg('');
+    } catch (e) { showToast("전송 실패!"); }
   };
 
   return (
@@ -365,10 +404,10 @@ function DMChatView({ user, chatTarget, dmChats, setDmChats, setActiveTab, showT
       <div className="flex-1 bg-white/70 backdrop-blur-xl rounded-3xl p-5 shadow-lg overflow-y-auto mb-4 border border-white no-scrollbar">
         {chatList.length === 0 && <div className="text-center text-slate-400 text-xs mt-10 font-bold flex flex-col items-center"><span className="text-4xl mb-3 opacity-50">👋</span>첫 인사를 건네보세요!</div>}
         {chatList.map((c: any, i: number) => {
-          const isMe = c.user === user.name;
+          const isMe = c.sender === user.name;
           return (
           <div key={i} className={`flex flex-col gap-1 mb-5 animate-in fade-in slide-in-from-bottom-1 ${isMe ? 'items-end' : 'items-start'}`}>
-            {!isMe && <span className="text-[10px] font-bold text-slate-500 mb-0.5 px-1">@{c.user}</span>}
+            {!isMe && <span className="text-[10px] font-bold text-slate-500 mb-0.5 px-1">@{c.sender}</span>}
             <div className={`text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-sm max-w-[85%] break-words ${isMe ? 'bg-gradient-to-bl from-emerald-500 to-emerald-600 text-white rounded-tr-sm shadow-emerald-500/20' : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'}`}>
               {c.text}
             </div>
