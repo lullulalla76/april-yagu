@@ -27,16 +27,16 @@ function useLocalStorage(key: string, initialValue: any) {
 
 // --- 구단 데이터 ---
 const KBO_TEAMS = [
-  { id: 'kia', name: 'KIA', logo: '/logos/kia.png', logoUrl: '/logos/kia.png', enlarged: '/logos/kia.png', color: 'bg-red-700', youtubeId: 'TigersTV_official' },
-  { id: 'samsung', name: '삼성', logo: '/logos/samsung.png', logoUrl: '/logos/samsung.png', enlarged: '/logos/samsung.png', color: 'bg-blue-600', youtubeId: 'LionsTV' },
-  { id: 'lg', name: 'LG', logo: '/logos/lg.png', logoUrl: '/logos/lg.png', enlarged: '/logos/lg.png', color: 'bg-red-800', youtubeId: 'LGTwinsTV' },
-  { id: 'doosan', name: '두산', logo: '/logos/doosan.png', logoUrl: '/logos/doosan.png', enlarged: '/logos/doosan.png', color: 'bg-blue-900', youtubeId: 'BearSpotv' },
-  { id: 'kt', name: 'KT', logo: '/logos/kt.png', logoUrl: '/logos/kt.png', enlarged: '/logos/kt.png', color: 'bg-gray-900', youtubeId: 'ktwiz_official' },
-  { id: 'ssg', name: 'SSG', logo: '/logos/ssg.png', logoUrl: '/logos/ssg.png', enlarged: '/logos/ssg.png', color: 'bg-red-600', youtubeId: 'SSGLANDERS' },
-  { id: 'lotte', name: '롯데', logo: '/logos/Lotte.png', logoUrl: '/logos/Lotte.png', enlarged: '/logos/Lotte.png', color: 'bg-blue-800', youtubeId: 'GiantsTV_official' },
-  { id: 'hanwha', name: '한화', logo: '/logos/hanwha.png', logoUrl: '/logos/hanwha.png', enlarged: '/logos/hanwha.png', color: 'bg-orange-500', youtubeId: 'EaglesTV' },
-  { id: 'kiwoom', name: '키움', logo: '/logos/kiwoom.png', logoUrl: '/logos/kiwoom.png', enlarged: '/logos/kiwoom.png', color: 'bg-red-900', youtubeId: 'HeroesTV' },
-  { id: 'nc', name: 'NC', logo: '/logos/nc.png', logoUrl: '/logos/nc.png', enlarged: '/logos/nc.png', color: 'bg-blue-700', youtubeId: 'NCDinos' }
+  { id: 'kia', name: 'KIA', logo: '/logos/kia.png', logoUrl: '/logos/kia.png', enlarged: '/logos/kia.png', color: 'bg-red-700', youtubeId: 'p6rFHkWu1Zg' },
+  { id: 'samsung', name: '삼성', logo: '/logos/samsung.png', logoUrl: '/logos/samsung.png', enlarged: '/logos/samsung.png', color: 'bg-blue-600', youtubeId: 'S_m6HKQVaAU' },
+  { id: 'lg', name: 'LG', logo: '/logos/lg.png', logoUrl: '/logos/lg.png', enlarged: '/logos/lg.png', color: 'bg-red-800', youtubeId: '4aBE5iA6aQc' },
+  { id: 'doosan', name: '두산', logo: '/logos/doosan.png', logoUrl: '/logos/doosan.png', enlarged: '/logos/doosan.png', color: 'bg-blue-900', youtubeId: '4UiIXEYjkyU' },
+  { id: 'kt', name: 'KT', logo: '/logos/kt.png', logoUrl: '/logos/kt.png', enlarged: '/logos/kt.png', color: 'bg-gray-900', youtubeId: 'JF2TEiYUUPM' },
+  { id: 'ssg', name: 'SSG', logo: '/logos/ssg.png', logoUrl: '/logos/ssg.png', enlarged: '/logos/ssg.png', color: 'bg-red-600', youtubeId: 'E2Xxz6bYfL8' },
+  { id: 'lotte', name: '롯데', logo: '/logos/Lotte.png', logoUrl: '/logos/Lotte.png', enlarged: '/logos/Lotte.png', color: 'bg-blue-800', youtubeId: 'yBqnXG2XoSE' },
+  { id: 'hanwha', name: '한화', logo: '/logos/hanwha.png', logoUrl: '/logos/hanwha.png', enlarged: '/logos/hanwha.png', color: 'bg-orange-500', youtubeId: 'Xu7HvaUX2YM' },
+  { id: 'kiwoom', name: '키움', logo: '/logos/kiwoom.png', logoUrl: '/logos/kiwoom.png', enlarged: '/logos/kiwoom.png', color: 'bg-red-900', youtubeId: 'KFnGYWBCI4k' },
+  { id: 'nc', name: 'NC', logo: '/logos/nc.png', logoUrl: '/logos/nc.png', enlarged: '/logos/nc.png', color: 'bg-blue-700', youtubeId: 't2OMvwfA610' }
 ];
 
 export default function App() {
