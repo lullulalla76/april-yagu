@@ -1,7 +1,8 @@
 import './index.css';
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react'; // useRef 추가 완료
+import { db } from './firebase'; 
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "firebase/firestore";
 
-// 이 아래부터는 원래 있던 "export default function App() {" 코드가 나오면 됩니다.
 // --- 커스텀 훅: 로컬 스토리지 저장 ---
 function useLocalStorage(key: string, initialValue: any) {
   const [storedValue, setStoredValue] = useState(() => {
@@ -45,6 +46,33 @@ export default function App() {
   const [user, setUser] = useLocalStorage('yagu_user_v8', { 
     name: '', team: 'LG', favPlayer: '아직 없음', seat: '네이비석 (시야 최고 가성비)', wins: 0, losses: 0 
   });
+  
+  // --- 실시간 채팅 데이터 상태 ---
+  const [homeChats, setHomeChats] = useState<any[]>([]); // 전체 채팅
+  const [liveChats, setLiveChats] = useState<any>({});   // 경기별 채팅
+
+  // --- Firebase 실시간 리스너 ---
+  useEffect(() => {
+    // 1. 전체 채팅방 감시
+    const qAll = query(collection(db, "allChats"), orderBy("createdAt", "asc"));
+    const unsubAll = onSnapshot(qAll, (snapshot) => {
+      setHomeChats(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    // 2. 경기별 경기톡 감시
+    const qLive = query(collection(db, "liveChats"), orderBy("createdAt", "asc"));
+    const unsubLive = onSnapshot(qLive, (snapshot) => {
+      const data: any = {};
+      snapshot.docs.forEach(doc => {
+        const chat = doc.data();
+        if (!data[chat.gameId]) data[chat.gameId] = [];
+        data[chat.gameId].push({ id: doc.id, ...chat });
+      });
+      setLiveChats(data);
+    });
+
+    return () => { unsubAll(); unsubLive(); };
+  }, []);
   
   const [schedule, setSchedule] = useState([] as any[]);
   const [selectedUser, setSelectedUser] = useState<any>(null); 
@@ -159,18 +187,16 @@ export default function App() {
             </div>
           </div>
 
-          {/* 🔥 모든 탭이 하단바에 가리지 않도록 pb-[104px] 강제 확보! */}
           <main className="relative z-10 flex-1 w-full min-h-0 flex flex-col px-4 pt-4 sm:px-5 sm:pt-5 pb-[104px] overflow-hidden">
-            {activeTab === 'home' && <HomeView user={user} schedule={schedule} setActiveTab={setActiveTab} isLoading={isLoading} />}
-            {activeTab === 'live' && <LiveChatView user={user} schedule={schedule} setActiveTab={setActiveTab} onUserClick={setSelectedUser} showToast={showToast} />}
-            {activeTab === 'allchat' && <AllChatView user={user} onUserClick={setSelectedUser} setActiveTab={setActiveTab} showToast={showToast} />}
+            {activeTab === 'home' && <HomeView user={user} schedule={schedule} setActiveTab={setActiveTab} isLoading={isLoading} homeChats={homeChats} />}
+            {activeTab === 'live' && <LiveChatView user={user} schedule={schedule} setActiveTab={setActiveTab} onUserClick={setSelectedUser} showToast={showToast} chats={liveChats} />}
+            {activeTab === 'allchat' && <AllChatView user={user} onUserClick={setSelectedUser} setActiveTab={setActiveTab} showToast={showToast} chats={homeChats} />}
             {activeTab === 'cheer' && <CheerRoomView user={user} showToast={showToast} />} 
             {activeTab === 'mate' && <MateView user={user} onUserClick={setSelectedUser} showToast={showToast} />}
             {activeTab === 'profile' && <ProfileView user={user} setUser={setUser} isFirstVisit={isFirstVisit} setIsFirstVisit={setIsFirstVisit} setActiveTab={setActiveTab} showToast={showToast} />}
             
-            {/* 🔥 DM 관련 탭 */}
             {activeTab === 'dm_list' && <DMListView dmChats={dmChats} setActiveTab={setActiveTab} setChatTarget={setChatTarget} />}
-            {activeTab === 'dm_chat' && <DMChatView user={user} chatTarget={chatTarget} dmChats={dmChats} setDmChats={setDmChats} setActiveTab={setActiveTab} showToast={showToast} onUserClick={setSelectedUser} />}
+            {activeTab === 'dm_chat' && <DMChatView user={user} chatTarget={chatTarget} dmChats={dmChats} setDmChats={setDmChats} setActiveTab={setActiveTab} showToast={showToast} />}
           </main>
 
           {/* 하단 네비게이션 */}
@@ -215,22 +241,20 @@ export default function App() {
   );
 }
 
-// --- 홈 화면 (🔥 DM 우편함 버튼 추가 & 그림자 잘림 해결) ---
-function HomeView({ user, schedule, setActiveTab, isLoading }: any) {
-  const [homeChats] = useLocalStorage('yagu_homeChats_v2', []);
+// --- 홈 화면 ---
+function HomeView({ user, schedule, setActiveTab, isLoading, homeChats }: any) {
+  // 에러 원인이었던 로컬스토리지 중복 선언 삭제됨
   return (
     <div className="flex-1 w-full min-h-0 overflow-y-auto no-scrollbar space-y-6 animate-in fade-in">
       <header className="flex justify-center pt-3 pb-1 relative">
         <h1 className="title-font text-[34px] text-center bg-gradient-to-r from-emerald-600 via-green-600 to-teal-500 text-transparent bg-clip-text drop-shadow-sm leading-[1.1]">
           공부 out!<br/>야구 in!
         </h1>
-        {/* 🔥 우편함 (DM) 아이콘 */}
         <button onClick={() => setActiveTab('dm_list')} className="absolute right-0 top-2 bg-white/80 backdrop-blur-md p-3 rounded-full shadow-md hover:bg-white hover:scale-105 active:scale-95 transition-all text-xl border border-slate-100">
           📬
         </button>
       </header>
       
-      {/* 🔥 잘림 방지: pt-5 pb-5를 주고 내부 스크롤 px-5 적용 */}
       <section className="bg-white/80 backdrop-blur-xl rounded-3xl py-5 border border-white shadow-lg overflow-hidden">
         <h2 className="text-base font-bold mb-4 text-slate-800 flex items-center gap-2 px-5">📅 전체 경기 일정</h2>
         <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar snap-x px-5">
@@ -319,7 +343,7 @@ function DMListView({ dmChats, setActiveTab, setChatTarget }: any) {
 }
 
 // --- 1:1 DM 채팅 뷰 ---
-function DMChatView({ user, chatTarget, dmChats, setDmChats, setActiveTab, showToast, onUserClick }: any) {
+function DMChatView({ user, chatTarget, dmChats, setDmChats, setActiveTab, showToast }: any) {
   const [msg, setMsg] = useState('');
   const chatList = dmChats[chatTarget] || [];
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -361,16 +385,22 @@ function DMChatView({ user, chatTarget, dmChats, setDmChats, setActiveTab, showT
 }
 
 // --- 전체 잡담방 ---
-function AllChatView({ user, onUserClick, setActiveTab, showToast }: any) {
+function AllChatView({ user, onUserClick, setActiveTab, showToast, chats }: any) {
   const [homeMsg, setHomeMsg] = useState('');
-  const [homeChats, setHomeChats] = useLocalStorage('yagu_homeChats_v2', []);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [homeChats]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chats]);
 
-  const send = () => {
+  const send = async () => {
     if(!homeMsg.trim()) { showToast("메시지를 입력해주세요!"); return; }
-    setHomeChats([...homeChats, { user: user.name, text: homeMsg.trim(), team: user.team, time: Date.now() }]);
-    setHomeMsg('');
+    try {
+      await addDoc(collection(db, "allChats"), {
+        user: user.name,
+        text: homeMsg.trim(),
+        team: user.team,
+        createdAt: serverTimestamp()
+      });
+      setHomeMsg(''); 
+    } catch (e) { showToast("전송 실패!"); }
   };
 
   return (
@@ -380,8 +410,8 @@ function AllChatView({ user, onUserClick, setActiveTab, showToast }: any) {
         <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text leading-none pt-1">🏠 전체 잡담방</h2>
       </div>
       <div className="flex-1 bg-white/70 backdrop-blur-xl rounded-3xl p-5 shadow-lg overflow-y-auto mb-4 border border-white no-scrollbar">
-        {homeChats.length === 0 && <div className="text-center text-slate-400 text-xs mt-10 font-bold flex flex-col items-center"><span className="text-4xl mb-3 opacity-50">👋</span>야구 이야기로 채팅을 채워보세요!</div>}
-        {homeChats.map((c: any, i: number) => {
+        {chats.length === 0 && <div className="text-center text-slate-400 text-xs mt-10 font-bold flex flex-col items-center"><span className="text-4xl mb-3 opacity-50">👋</span>야구 이야기로 채팅을 채워보세요!</div>}
+        {chats.map((c: any, i: number) => {
           const isMe = c.user === user.name;
           const teamInfo = KBO_TEAMS.find(t=>t.id===c.team) || KBO_TEAMS[0];
           return (
@@ -398,7 +428,13 @@ function AllChatView({ user, onUserClick, setActiveTab, showToast }: any) {
         <div ref={chatEndRef} />
       </div>
       <div className="flex gap-2 shrink-0">
-        <input className="flex-1 p-3.5 bg-white rounded-2xl outline-none text-sm shadow-sm border border-slate-100 focus:ring-2 ring-emerald-400 transition-all" placeholder="메시지를 입력하세요..." value={homeMsg} onChange={e=>setHomeMsg(e.target.value)} onKeyDown={e=>{if(e.key==='Enter' && !e.nativeEvent.isComposing) send()}}/>
+        <input 
+          className="flex-1 p-3.5 bg-white rounded-2xl outline-none text-sm shadow-sm border border-slate-100 focus:ring-2 ring-emerald-400 transition-all" 
+          placeholder="메시지를 입력하세요..." 
+          value={homeMsg} 
+          onChange={e => setHomeMsg(e.target.value)}
+          onKeyDown={e => {if(e.key === 'Enter' && !e.nativeEvent.isComposing) send()}}
+        />
         <button onClick={send} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-6 rounded-2xl font-black shadow-md active:scale-95 transition-all text-sm">전송</button>
       </div>
     </div>
@@ -406,74 +442,64 @@ function AllChatView({ user, onUserClick, setActiveTab, showToast }: any) {
 }
 
 // --- 실시간 경기 톡 ---
-function LiveChatView({ user, schedule, setActiveTab, onUserClick, showToast }: any) {
+function LiveChatView({ user, schedule, setActiveTab, onUserClick, showToast, chats }: any) {
   const [selectedGame, setSelectedGame] = useState(0);
   const [msg, setMsg] = useState('');
-  
-  const today = new Date();
-  const todayM = today.getMonth() + 1;
-  const todayD = today.getDate();
-  const todaySchedule = schedule.find((s: any) => s.month === todayM && s.date === todayD);
-  const todaysMatches = todaySchedule ? todaySchedule.matches : [];
-  
-  const [chats, setChats] = useLocalStorage('yagu_liveChats_v3', { 0: [], 1: [], 2: [], 3: [], 4: [] });
+  const todaySchedule = schedule.find((s: any) => s.isToday);
+  const todaysMatches = todaySchedule?.matches || []; 
   const chatEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chats, selectedGame]);
 
-  const sendChat = () => {
+  const send = async () => {
     if(!msg.trim()) { showToast("메시지를 입력해주세요!"); return; }
-    setChats({ ...chats, [selectedGame]: [...(chats[selectedGame] || []), { user: user.name, text: msg.trim(), team: user.team }] });
-    setMsg('');
+    try {
+      await addDoc(collection(db, "liveChats"), {
+        gameId: selectedGame,
+        user: user.name,
+        text: msg.trim(),
+        team: user.team,
+        createdAt: serverTimestamp()
+      });
+      setMsg('');
+    } catch (e) { showToast("전송 실패!"); }
   };
 
   return (
-    <div className="flex-1 w-full min-h-0 flex flex-col animate-in fade-in space-y-4">
-      <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text text-center pt-2 shrink-0 leading-none">⚾ 실시간 경기 톡</h2>
+    <div className="flex-1 w-full min-h-0 flex flex-col space-y-4">
+      <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text text-center pt-2 leading-none shrink-0">⚾ 실시간 경기 톡</h2>
       {todaysMatches.length > 0 ? (
         <>
           <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar shrink-0 px-1">
             {todaysMatches.map((g: any, idx: number) => (
-              <button key={idx} onClick={() => setSelectedGame(idx)} className={`px-4 py-2.5 rounded-full whitespace-nowrap text-xs font-black border transition-all ${selectedGame === idx ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-md border-transparent scale-105' : 'bg-white/80 backdrop-blur text-slate-500 border-slate-200 hover:bg-white'}`}> {g.home} vs {g.away} </button>
+              <button key={idx} onClick={() => setSelectedGame(idx)} className={`px-4 py-2.5 rounded-full whitespace-nowrap text-xs font-black border transition-all ${selectedGame === idx ? 'bg-emerald-600 text-white shadow-md' : 'bg-white/80 text-slate-500'}`}> {g.home} vs {g.away} </button>
             ))}
           </div>
-          
-          <div className="flex-1 bg-white/70 backdrop-blur-xl rounded-3xl p-4 shadow-sm overflow-y-auto border border-white no-scrollbar">
-            <div className="space-y-2">
-              <p className="text-center text-slate-400 text-[10px] font-black tracking-widest py-2 border-b border-slate-200/50 mb-5 uppercase"> Live Match Chat </p>
-              {(chats[selectedGame] || []).map((c: any, i: number) => {
-                const isMe = c.user === user.name;
-                const teamInfo = KBO_TEAMS.find(t=>t.id===c.team) || KBO_TEAMS[0];
-                return (
-                <div key={i} className={`flex flex-col gap-1 mb-5 animate-in slide-in-from-bottom-2 ${isMe ? 'items-end' : 'items-start'}`}>
-                  <div className={`flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                    <span className={`text-[9px] font-black text-white ${teamInfo.color} px-1.5 py-0.5 rounded shadow-sm`}>{c.team}</span>
-                    <button onClick={() => !isMe && onUserClick(c)} className={`text-[10px] font-bold ${isMe ? 'text-emerald-500' : 'text-slate-500 hover:text-emerald-600 transition-colors'}`}>{c.user}</button>
-                  </div>
-                  <div className={`text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-sm max-w-[85%] break-all ${isMe ? 'bg-gradient-to-bl from-emerald-500 to-emerald-600 text-white rounded-tr-sm' : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'}`}>
-                    {c.text}
-                  </div>
+          <div className="flex-1 bg-white/70 backdrop-blur-xl rounded-3xl p-4 shadow-sm overflow-y-auto no-scrollbar border border-white">
+            {(chats[selectedGame] || []).map((c: any, i: number) => {
+              const isMe = c.user === user.name;
+              const teamInfo = KBO_TEAMS.find(t=>t.id===c.team) || KBO_TEAMS[0];
+              return (
+              <div key={i} className={`flex flex-col gap-1 mb-5 animate-in slide-in-from-bottom-2 ${isMe ? 'items-end' : 'items-start'}`}>
+                <div className={`flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <span className={`text-[9px] font-black text-white ${teamInfo.color} px-1.5 py-0.5 rounded shadow-sm`}>{c.team}</span>
+                  <button onClick={() => !isMe && onUserClick(c)} className={`text-[10px] font-bold ${isMe ? 'text-emerald-500' : 'text-slate-500'}`}>{c.user}</button>
                 </div>
-                )
-              })}
-              <div ref={chatEndRef} />
-            </div>
+                <div className={`text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-sm max-w-[85%] break-all ${isMe ? 'bg-emerald-600 text-white rounded-tr-sm' : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm'}`}>{c.text}</div>
+              </div>
+            )})}
+            <div ref={chatEndRef} />
           </div>
-          <div className="flex gap-2 p-2 bg-white/90 backdrop-blur rounded-2xl shadow-sm shrink-0 border border-white">
-            <input className="flex-1 text-sm px-3 outline-none bg-transparent" placeholder="실시간 응원 메시지..." value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>{if(e.key==='Enter' && !e.nativeEvent.isComposing) sendChat()}}/>
-            <button onClick={sendChat} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl text-lg flex justify-center items-center active:scale-90 transition-transform shadow-sm">⚾</button>
+          <div className="flex gap-2 p-2 bg-white rounded-2xl shadow-sm border border-white shrink-0">
+            <input className="flex-1 text-sm px-3 outline-none bg-transparent" placeholder="실시간 응원 메시지..." value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>{if(e.key === 'Enter' && !e.nativeEvent.isComposing) send()}}/>
+            <button onClick={send} className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex justify-center items-center shadow-sm">⚾</button>
           </div>
         </>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center bg-white/70 backdrop-blur-xl rounded-3xl p-8 text-center shadow-sm border border-white space-y-6 animate-in zoom-in-95">
-          <div className="text-7xl animate-bounce">🛌</div>
-          <div>
-            <h3 className="text-xl font-black text-slate-800 mb-2">오늘은 경기가 없습니다!</h3>
-            <p className="text-xs font-bold text-slate-500 leading-relaxed">선수들도 쉬는 날! <br/> 우리끼리 잡담방에서 수다 떨까요?</p>
+          <div className="flex-1 flex flex-col items-center justify-center bg-white/70 rounded-3xl p-8 text-center border border-white space-y-4">
+            <div className="text-6xl">🛌</div>
+            <p className="text-sm font-bold text-slate-500">오늘은 경기가 없습니다!</p>
+            <button onClick={() => setActiveTab('home')} className="mt-4 text-xs text-emerald-600 font-bold bg-white px-4 py-2 rounded-xl shadow-sm">홈으로 돌아가기</button>
           </div>
-          <button onClick={() => setActiveTab('allchat')} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white w-full py-4 rounded-2xl font-black shadow-md hover:scale-105 active:scale-95 transition-all text-base mt-2 animate-pulse">
-            🏠 전체 잡담방 가기
-          </button>
-        </div>
       )}
     </div>
   );
@@ -528,6 +554,9 @@ function CheerRoomView({ user, showToast }: any) {
 // --- 메이트 구인 ---
 const STADIUM_LIST = ["기아 챔피언스 필드", "대구 삼성 라이온즈 파크", "잠실 야구장", "고척 스카이돔", "인천 SSG 랜더스필드", "사직 야구장", "대전 한화생명 이글스파크", "창원 NC 파크", "수원 KT 위즈 파크"];
 function MateView({ user, onUserClick, showToast }: any) {
+  // 🔥 유일한 chatEndRef 선언!
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  
   const [mateTab, setMateTab] = useState('stadium');
   const [mates, setMates] = useLocalStorage('yagu_mates_v9', { stadium: [], outside: [] });
   const [title, setTitle] = useState('');
@@ -567,7 +596,8 @@ function MateView({ user, onUserClick, showToast }: any) {
   };
 
   const viewingMatePost = viewingMateId ? mates[mateTab].find((p: any) => p.id === viewingMateId) : null;
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  
+  // 스크롤 감시
   useEffect(() => { if(viewingMatePost) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [viewingMatePost?.chats]); 
 
   if (viewingMateId && viewingMatePost) {
@@ -600,7 +630,9 @@ function MateView({ user, onUserClick, showToast }: any) {
               <span className="text-sm font-bold text-slate-400">/{viewingMatePost.total}</span>
             </div>
           </div>
-          <p className="text-[10px] font-bold text-slate-400 mb-3 text-left">작성자: @{viewingMatePost.user}</p>
+          <p className="text-[10px] font-bold text-slate-400 mb-3 text-left cursor-pointer hover:text-emerald-500 transition-colors" onClick={() => onUserClick(viewingMatePost)}>
+            작성자: @{viewingMatePost.user}
+          </p>
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-xs font-semibold text-slate-700 mb-3 shrink-0 text-left">{viewingMatePost.content}</div>
           
           <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 shrink-0 mb-4 shadow-sm">
