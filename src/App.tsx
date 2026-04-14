@@ -865,23 +865,28 @@ function NavBtn({ icon, label, active, onClick }: { icon: string, label: string,
   );
 }
 
-// --- 🎮 야구장 오락실 (요청된 순서: 도루왕 -> 광클 -> 밸런스 -> 운세) ---
+// --- 🎮 야구장 오락실 (요청된 순서: 도루왕 -> 광클 -> 밸런스 -> 운세 + 실시간 랭킹 & 진동) ---
 function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: any) {
   const [gameState, setGameState] = useState('menu'); 
+  
+  // 🏆 실시간 랭킹 상태
+  const [clickerRanks, setClickerRanks] = useState<any[]>([]);
+  const [stealRanks, setStealRanks] = useState<any[]>([]);
+
+  // 랭킹 데이터 가져오기 (Firebase)
+  useEffect(() => {
+    const unsubClicker = onSnapshot(query(collection(db, "clickerRanks"), orderBy("score", "desc")), (snap) => {
+      setClickerRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); // Top 5
+    });
+    const unsubSteal = onSnapshot(query(collection(db, "stealRanks"), orderBy("time", "asc")), (snap) => {
+      setStealRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); // Top 5
+    });
+    return () => { unsubClicker(); unsubSteal(); };
+  }, []);
+
+  // 1. ⚖️ 밸런스 게임 상태
   const [balIdx, setBalIdx] = useState(0);
   const [voted, setVoted] = useState(false);
-  const [clickerActive, setClickerActive] = useState(false);
-  const [clickerTime, setClickerTime] = useState(10);
-  const [clickerScore, setClickerScore] = useState(0);
-  const [pop, setPop] = useState(false);
-  const [stealState, setStealState] = useState('idle'); 
-  const [stealTime, setStealTime] = useState(0);
-  const stealStartRef = useRef(0);
-  const stealTimeoutRef = useRef<any>(null);
-  const [fortune, setFortune] = useState<any>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-
-  // 1. ⚖️ 밸런스 게임 질문 15개
   const balanceQuestions = [
     { q: "9회말 2아웃 만루, 1점 차 지고 있는 상황.\n당신의 선택은?", a: "홈런 타자 대타", b: "발 빠른 주자 대주자" },
     { q: "더 킹받는 순간은?", a: "믿었던 마무리 투수의 블론세이브", b: "무사 만루에서 병살타-삼진" },
@@ -902,59 +907,136 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
 
   const balChatRef = useRef<HTMLDivElement>(null);
   const currentBalChats = balanceChats[balIdx] || [];
+  
   useEffect(() => { balChatRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [currentBalChats, balIdx]);
 
   const sendBalChat = async () => {
-    if(!balIdx.toString() || !user.name) return; // 에러 방지
     const val = (document.getElementById('balInput') as HTMLInputElement)?.value;
-    if(!val?.trim()) return;
-    try { await addDoc(collection(db, "balanceChats"), { qIdx: balIdx, user: user.name, text: val.trim(), team: user.team, createdAt: serverTimestamp() }); (document.getElementById('balInput') as HTMLInputElement).value = ''; } catch (e) { showToast("실패!"); }
+    if(!val || !val.trim()) return;
+    try { 
+      await addDoc(collection(db, "balanceChats"), { qIdx: balIdx, user: user.name, text: val.trim(), team: user.team, createdAt: serverTimestamp() }); 
+      (document.getElementById('balInput') as HTMLInputElement).value = ''; 
+    } catch (e) { showToast("실패!"); }
   };
 
-  // 2. ⚡ 광클 타이머 로직
+  // 2. ⚡ 광클 타이머 & 진동 & 랭킹 로직
+  const [clickerActive, setClickerActive] = useState(false);
+  const [clickerTime, setClickerTime] = useState(10);
+  const [clickerScore, setClickerScore] = useState(0);
+  const [pop, setPop] = useState(false);
+
   useEffect(() => {
     let timer: any;
-    if (clickerActive && clickerTime > 0) { timer = setTimeout(() => setClickerTime(prev => prev - 1), 1000); } 
-    else if (clickerTime === 0) { setClickerActive(false); }
+    if (clickerActive && clickerTime > 0) { 
+      timer = setTimeout(() => setClickerTime(prev => prev - 1), 1000); 
+    }
     return () => clearTimeout(timer);
   }, [clickerActive, clickerTime]);
 
-  // 3. 🥠 운세 10개
-  const fortunes = ["홈런 관상입니다! ⚾🔥", "우천 취소 기운.. 파전 추천! ☔", "승리요정 확률 99%! 🧚‍♂️", "1점차 쫄깃한 승리 하루! 💦", "침대 야구 주의(잠듦) 🛌", "상대 에이스가 미치는 날.. 🧘‍♂️", "뉴스타 탄생의 날! 🌟", "야구장 먹거리 대성공! 🍗🍺", "태평양 존 심판 만남 🌊", "9회말 역전극 대기 중! 📺"];
-  const drawFortune = () => { setIsDrawing(true); setFortune(null); setTimeout(() => { setFortune({ score: Math.floor(Math.random() * 100) + 1, text: fortunes[Math.floor(Math.random() * fortunes.length)] }); setIsDrawing(false); }, 800); };
+  useEffect(() => {
+    // 10초가 끝나면 랭킹 등록
+    if (clickerTime === 0 && clickerActive) {
+      setClickerActive(false);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]); // 종료 알림 진동
+      if (clickerScore > 0) {
+        addDoc(collection(db, "clickerRanks"), { user: user.name, team: user.team, score: clickerScore, createdAt: serverTimestamp() }).catch(()=>{});
+      }
+    }
+  }, [clickerTime, clickerActive, clickerScore, user]);
 
-  // 4. 🏃 도루왕 로직
-  const startSteal = () => { setStealState('waiting'); const delay = Math.floor(Math.random() * 4000) + 2000; stealTimeoutRef.current = setTimeout(() => { setStealState('ready'); stealStartRef.current = Date.now(); }, delay); };
-  const handleStealClick = () => { if (stealState === 'waiting') { clearTimeout(stealTimeoutRef.current); setStealState('early'); } else if (stealState === 'ready') { setStealTime(Date.now() - stealStartRef.current); setStealState('done'); } };
+  const startClicker = () => { 
+    if (navigator.vibrate) navigator.vibrate(30);
+    setClickerScore(0); setClickerTime(10); setClickerActive(true); 
+  };
+  
+  const handleClicker = () => {
+    if (clickerActive && clickerTime > 0) {
+      if (navigator.vibrate) navigator.vibrate(30); // 🔘 클릭할 때마다 짧은 진동!
+      setClickerScore(prev => prev + 1);
+      setPop(true); setTimeout(() => setPop(false), 100);
+    }
+  };
+
+  // 3. 🥠 운세 로직
+  const [fortune, setFortune] = useState<any>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const fortunes = ["홈런 관상입니다! ⚾🔥", "우천 취소 기운.. 파전 추천! ☔", "승리요정 확률 99%! 🧚‍♂️", "1점차 쫄깃한 승리 하루! 💦", "침대 야구 주의(잠듦) 🛌", "상대 에이스가 미치는 날.. 🧘‍♂️", "뉴스타 탄생의 날! 🌟", "야구장 먹거리 대성공! 🍗🍺", "태평양 존 심판 만남 🌊", "9회말 역전극 대기 중! 📺"];
+  
+  const drawFortune = () => { 
+    setIsDrawing(true); setFortune(null); 
+    if (navigator.vibrate) navigator.vibrate([50, 50, 50]);
+    setTimeout(() => { 
+      setFortune({ score: Math.floor(Math.random() * 100) + 1, text: fortunes[Math.floor(Math.random() * fortunes.length)] }); 
+      setIsDrawing(false); 
+      if (navigator.vibrate) navigator.vibrate(200);
+    }, 800); 
+  };
+
+  // 4. 🏃 도루왕 로직 & 진동 & 랭킹
+  const [stealState, setStealState] = useState('idle'); 
+  const [stealTime, setStealTime] = useState(0);
+  const stealStartRef = useRef(0);
+  const stealTimeoutRef = useRef<any>(null);
+
+  const startSteal = () => { 
+    if (navigator.vibrate) navigator.vibrate(30);
+    setStealState('waiting'); 
+    const delay = Math.floor(Math.random() * 4000) + 2000; 
+    stealTimeoutRef.current = setTimeout(() => { 
+      setStealState('ready'); 
+      stealStartRef.current = Date.now(); 
+    }, delay); 
+  };
+  
+  const handleStealClick = () => { 
+    if (stealState === 'waiting') { 
+      clearTimeout(stealTimeoutRef.current); 
+      setStealState('early'); 
+      if (navigator.vibrate) navigator.vibrate(300); // ❌ 앗! 실패 징-징- 진동
+    } 
+    else if (stealState === 'ready') { 
+      const time = Date.now() - stealStartRef.current; 
+      setStealTime(time); 
+      setStealState('done'); 
+      if (navigator.vibrate) navigator.vibrate([50, 50, 50]); // 🟢 성공 경쾌한 진동
+      addDoc(collection(db, "stealRanks"), { user: user.name, team: user.team, time: time, createdAt: serverTimestamp() }).catch(()=>{});
+    } 
+  };
 
   return (
     <div className="flex-1 w-full min-h-0 flex flex-col animate-in fade-in space-y-4 pb-2">
       <div className="flex items-center gap-3 mt-2 px-1 shrink-0">
         {gameState !== 'menu' && <button onClick={() => {setGameState('menu'); setVoted(false); setFortune(null); setClickerActive(false); setStealState('idle');}} className="text-emerald-600 font-black text-xl bg-white p-2 rounded-2xl shadow-sm w-11 h-11 flex items-center justify-center border border-slate-100">❮</button>}
-        <h2 className="title-font text-[34px] bg-gradient-to-r from-indigo-500 to-pink-500 text-transparent bg-clip-text drop-shadow-sm truncate">{gameState === 'menu' ? '🎮 오락실' : gameState === 'steal' ? '🏃 도루왕' : gameState === 'clicker' ? '⚡ 10초 광클' : gameState === 'balance' ? '⚖️ 밸런스' : '🥠 야구 운세'}</h2>
+        <h2 className="title-font text-[34px] bg-gradient-to-r from-indigo-500 to-pink-500 text-transparent bg-clip-text drop-shadow-sm truncate">
+          {gameState === 'menu' ? '🎮 오락실' : gameState === 'steal' ? '🏃 도루왕' : gameState === 'clicker' ? '⚡ 10초 광클' : gameState === 'balance' ? '⚖️ 밸런스' : '🥠 야구 운세'}
+        </h2>
       </div>
 
+      {/* --- 메인 메뉴 (순서: 도루왕 -> 광클 -> 밸런스 -> 운세) --- */}
       {gameState === 'menu' && (
         <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 mt-2 px-1">
-          {/* 🔥 1. 0.1초 도루왕 (순서 1번) */}
+          {/* 1. 도루왕 */}
           <button onClick={() => setGameState('steal')} className="bg-gradient-to-br from-rose-500 to-red-600 rounded-[28px] p-5 text-left shadow-lg hover:-translate-y-1 active:scale-95 transition-all relative overflow-hidden border border-white/20">
             <div className="absolute -right-2 -bottom-2 text-7xl opacity-20">🏃</div>
             <span className="bg-white/20 text-rose-50 text-[9px] font-black px-2 py-1 rounded-full">반사신경</span>
             <h3 className="text-xl font-black text-white mt-3 leading-tight">0.1초<br/>도루왕</h3>
           </button>
-          {/* 🔥 2. 10초 광클 게임 (순서 2번) */}
+          
+          {/* 2. 10초 광클 */}
           <button onClick={() => setGameState('clicker')} className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-[28px] p-5 text-left shadow-lg hover:-translate-y-1 active:scale-95 transition-all relative overflow-hidden border border-white/20">
             <div className="absolute -right-2 -bottom-2 text-7xl opacity-20">⚡</div>
             <span className="bg-white/20 text-blue-50 text-[9px] font-black px-2 py-1 rounded-full">무한 연타</span>
             <h3 className="text-xl font-black text-white mt-3 leading-tight">10초 무한<br/>광클 타자</h3>
           </button>
-          {/* 🔥 3. 밸런스 게임 (순서 3번) */}
+          
+          {/* 3. 밸런스 게임 */}
           <button onClick={() => setGameState('balance')} className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[28px] p-5 text-left shadow-lg hover:-translate-y-1 active:scale-95 transition-all relative overflow-hidden border border-white/20">
             <div className="absolute -right-2 -bottom-2 text-7xl opacity-20">⚖️</div>
             <span className="bg-white/20 text-indigo-50 text-[9px] font-black px-2 py-1 rounded-full">과몰입 토론</span>
             <h3 className="text-xl font-black text-white mt-3 leading-tight">야구팬<br/>밸런스</h3>
           </button>
-          {/* 🔥 4. 운세 게임 (순서 4번) */}
+          
+          {/* 4. 운세 게임 */}
           <button onClick={() => setGameState('fortune')} className="bg-gradient-to-br from-amber-400 to-orange-500 rounded-[28px] p-5 text-left shadow-lg hover:-translate-y-1 active:scale-95 transition-all relative overflow-hidden border border-white/20">
             <div className="absolute -right-2 -bottom-2 text-7xl opacity-20">🥠</div>
             <span className="bg-white/20 text-amber-50 text-[9px] font-black px-2 py-1 rounded-full">행운 지수</span>
@@ -963,51 +1045,107 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
         </div>
       )}
 
-      {/* --- 도루왕 뷰 --- */}
+      {/* --- 1. 도루왕 뷰 --- */}
       {gameState === 'steal' && (
-        <div className="flex-1 bg-white/90 backdrop-blur-xl rounded-3xl p-4 shadow-lg border border-white flex flex-col items-center justify-center animate-in zoom-in-95">
-          <h3 className="font-black mb-8 text-slate-800">빨간불에 즉시 터치!!</h3>
-          <div onClick={stealState === 'waiting' || stealState === 'ready' ? handleStealClick : undefined} className={`w-full aspect-square max-w-[280px] rounded-[40px] flex flex-col items-center justify-center cursor-pointer transition-all duration-100 select-none ${stealState === 'ready' ? 'bg-red-600 shadow-[0_0_50px_rgba(220,38,38,0.5)]' : 'bg-slate-800 shadow-inner'}`}>
-            {stealState === 'idle' && <button onClick={startSteal} className="bg-rose-500 text-white px-10 py-5 rounded-2xl font-black text-xl shadow-lg active:scale-95">게임 시작 ❯</button>}
+        <div className="flex-1 overflow-y-auto no-scrollbar bg-white/90 backdrop-blur-xl rounded-3xl p-4 shadow-lg border border-white flex flex-col items-center animate-in zoom-in-95">
+          <h3 className="font-black mb-6 text-slate-800 mt-4">빨간불에 즉시 터치!!</h3>
+          <div onClick={stealState === 'waiting' || stealState === 'ready' ? handleStealClick : undefined} className={`w-full aspect-square max-w-[280px] shrink-0 rounded-[40px] flex flex-col items-center justify-center cursor-pointer transition-all duration-100 select-none ${stealState === 'ready' ? 'bg-red-600 shadow-[0_0_50px_rgba(220,38,38,0.5)]' : 'bg-slate-800 shadow-inner'}`}>
+            {stealState === 'idle' && <button onClick={startSteal} className="bg-rose-500 text-white px-10 py-5 rounded-2xl font-black text-xl shadow-lg active:scale-95">도전 시작 ❯</button>}
             {stealState === 'waiting' && <div className="text-white animate-pulse flex flex-col items-center"><p className="text-7xl mb-4">👀</p><p className="font-black text-xl">견제 중...</p></div>}
             {stealState === 'ready' && <div className="text-white flex flex-col items-center"><p className="text-7xl mb-4">🚨</p><p className="font-black text-5xl">지금!!</p></div>}
             {stealState === 'early' && <div className="text-white flex flex-col items-center gap-4"><p className="text-6xl">🛑</p><p className="font-black text-xl">견제사 당함!</p><button onClick={startSteal} className="mt-4 text-xs font-black text-white bg-rose-600 px-6 py-3 rounded-xl">다시 시도 ↻</button></div>}
             {stealState === 'done' && <div className="text-white flex flex-col items-center gap-4 animate-in zoom-in-90"><p className="font-black text-[50px]">{(stealTime / 1000).toFixed(3)}초</p><p className="text-xs bg-white text-rose-600 px-4 py-2 rounded-lg font-bold">{stealTime < 250 ? "대도 이대형 급! 🚀" : "준수합니다! 🏃‍♂️"}</p><button onClick={startSteal} className="mt-4 text-sm font-black text-slate-900 bg-white px-8 py-3 rounded-xl shadow-md">다시 시도 ↻</button></div>}
           </div>
+
+          {/* 도루왕 랭킹 */}
+          <div className="w-full mt-8 bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4">
+            <h4 className="text-[11px] font-black text-rose-600 mb-3 flex items-center gap-1.5"><span className="text-sm">🏆</span> 실시간 반응속도 랭킹</h4>
+            {stealRanks.length === 0 && <p className="text-xs text-slate-400 font-bold py-2">첫 기록의 주인공이 되어보세요!</p>}
+            {stealRanks.map((r, i) => (
+              <div key={i} className="flex justify-between items-center py-2 border-b border-slate-200/50 last:border-0">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-2">
+                  <span className={`w-4 text-center font-black ${i===0?'text-yellow-500':i===1?'text-slate-400':i===2?'text-amber-700':'text-slate-300'}`}>{i+1}</span> 
+                  {r.user} <span className="text-[9px] text-slate-400 font-normal">({r.team})</span>
+                </span>
+                <span className="text-[11px] font-black text-rose-500">{(r.time / 1000).toFixed(3)}초</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* --- 광클 뷰 --- */}
+      {/* --- 2. 광클 뷰 --- */}
       {gameState === 'clicker' && (
-        <div className="flex-1 bg-white/90 rounded-3xl p-6 shadow-lg border border-white flex flex-col items-center justify-center animate-in zoom-in-95">
-          <div className="flex justify-between w-full mb-10"><div className="flex flex-col items-center"><span className="text-[10px] font-bold text-slate-400">시간</span><span className={`text-4xl font-black ${clickerTime <= 3 ? 'text-red-500 animate-pulse' : 'text-blue-600'}`}>{clickerTime}s</span></div><div className="flex flex-col items-center"><span className="text-[10px] font-bold text-slate-400">타수</span><span className="text-4xl font-black text-slate-800">{clickerScore}</span></div></div>
-          {!clickerActive && clickerTime === 10 ? <button onClick={()=>{setClickerScore(0); setClickerTime(10); setClickerActive(true);}} className="bg-blue-500 text-white px-10 py-5 rounded-2xl font-black text-xl shadow-lg active:scale-95 animate-pulse">도전 시작! 🚀</button> : !clickerActive && clickerTime === 0 ? <div className="flex flex-col items-center gap-4"><p className="text-lg font-black text-slate-800">최종: <span className="text-blue-600 text-4xl">{clickerScore}</span>타!</p><button onClick={()=>{setClickerScore(0); setClickerTime(10); setClickerActive(true);}} className="bg-slate-800 text-white px-8 py-3 rounded-xl font-black active:scale-95">재도전 ↻</button></div> : <button onClick={()=>{setClickerScore(prev=>prev+1); setPop(true); setTimeout(()=>setPop(false),100);}} className={`w-44 h-44 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-full shadow-lg flex items-center justify-center text-7xl active:scale-90 transition-all border-4 border-white ${pop ? 'animate-pop' : ''}`}>⚾</button>}
+        <div className="flex-1 overflow-y-auto no-scrollbar bg-white/90 rounded-3xl p-4 shadow-lg border border-white flex flex-col items-center animate-in zoom-in-95">
+          <div className="flex justify-between w-full px-4 mb-6 mt-4">
+            <div className="flex flex-col items-center"><span className="text-[10px] font-bold text-slate-400">시간</span><span className={`text-4xl font-black ${clickerTime <= 3 ? 'text-red-500 animate-pulse' : 'text-blue-600'}`}>{clickerTime}s</span></div>
+            <div className="flex flex-col items-center"><span className="text-[10px] font-bold text-slate-400">타수</span><span className="text-4xl font-black text-slate-800">{clickerScore}</span></div>
+          </div>
+
+          <div className="h-[200px] flex items-center justify-center shrink-0">
+            {!clickerActive && clickerTime === 10 ? (
+              <button onClick={startClicker} className="bg-blue-500 text-white px-10 py-5 rounded-2xl font-black text-xl shadow-lg active:scale-95 animate-pulse">도전 시작! 🚀</button>
+            ) : !clickerActive && clickerTime === 0 ? (
+              <div className="flex flex-col items-center gap-3"><p className="text-lg font-black text-slate-800">최종: <span className="text-blue-600 text-4xl">{clickerScore}</span>타!</p><button onClick={startClicker} className="bg-slate-800 text-white px-8 py-3 rounded-xl font-black active:scale-95">재도전 ↻</button></div>
+            ) : (
+              <button onClick={handleClicker} className={`w-40 h-40 bg-gradient-to-br from-blue-400 to-cyan-400 rounded-full shadow-[0_10px_30px_rgba(59,130,246,0.4)] flex items-center justify-center text-7xl active:scale-90 transition-transform select-none ${pop ? 'animate-pop' : ''}`}>⚾</button>
+            )}
+          </div>
+
+          {/* 광클 타자 랭킹 */}
+          <div className="w-full mt-6 bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4">
+            <h4 className="text-[11px] font-black text-blue-600 mb-3 flex items-center gap-1.5"><span className="text-sm">🏆</span> 실시간 타수 랭킹</h4>
+            {clickerRanks.length === 0 && <p className="text-xs text-slate-400 font-bold py-2">첫 기록의 주인공이 되어보세요!</p>}
+            {clickerRanks.map((r, i) => (
+              <div key={i} className="flex justify-between items-center py-2 border-b border-slate-200/50 last:border-0">
+                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-2">
+                  <span className={`w-4 text-center font-black ${i===0?'text-yellow-500':i===1?'text-slate-400':i===2?'text-amber-700':'text-slate-300'}`}>{i+1}</span> 
+                  {r.user} <span className="text-[9px] text-slate-400 font-normal">({r.team})</span>
+                </span>
+                <span className="text-[11px] font-black text-blue-500">{r.score}타</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* --- 밸런스 뷰 (댓글 포함) --- */}
+      {/* --- 3. 밸런스 뷰 (댓글 포함) --- */}
       {gameState === 'balance' && (
         <div className="flex-1 flex flex-col min-h-0 bg-white/90 backdrop-blur-xl rounded-3xl p-4 shadow-lg border border-white animate-in zoom-in-95">
           <div className="shrink-0 flex flex-col items-center text-center pb-4 border-b border-slate-100">
-            <div className="flex justify-between w-full mb-3"><span className="text-[11px] font-black text-white bg-indigo-500 px-3 py-1.5 rounded-full shadow-md">Q. {balIdx + 1}</span><button onClick={()=>{setVoted(false); setBalIdx((prev) => (prev + 1) % balanceQuestions.length);}} className="text-[10px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl active:scale-90 transition-all">건너뛰기 ❯</button></div>
+            <div className="flex justify-between w-full mb-3">
+              <span className="text-[11px] font-black text-white bg-indigo-500 px-3 py-1.5 rounded-full shadow-md">Q. {balIdx + 1}</span>
+              <button onClick={()=>{setVoted(false); setBalIdx((prev) => (prev + 1) % balanceQuestions.length);}} className="text-[10px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-xl active:scale-90 transition-all">건너뛰기 ❯</button>
+            </div>
             <h3 className="text-[15px] font-black text-slate-800 mb-5 whitespace-pre-wrap">{balanceQuestions[balIdx].q}</h3>
-            <div className="w-full flex gap-2"><button onClick={()=>setVoted(true)} className={`flex-1 p-3 rounded-2xl font-black text-[11px] border-[3px] active:scale-95 ${voted ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-100 text-slate-600'}`}>A. {balanceQuestions[balIdx].a}</button><button onClick={()=>setVoted(true)} className={`flex-1 p-3 rounded-2xl font-black text-[11px] border-[3px] active:scale-95 ${voted ? 'bg-purple-50 border-purple-300 text-purple-700' : 'bg-white border-slate-100 text-slate-600'}`}>B. {balanceQuestions[balIdx].b}</button></div>
+            <div className="w-full flex gap-2">
+              <button onClick={()=>setVoted(true)} className={`flex-1 p-3 rounded-2xl font-black text-[11px] border-[3px] active:scale-95 ${voted ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-100 text-slate-600'}`}>A. {balanceQuestions[balIdx].a}</button>
+              <button onClick={()=>setVoted(true)} className={`flex-1 p-3 rounded-2xl font-black text-[11px] border-[3px] active:scale-95 ${voted ? 'bg-purple-50 border-purple-300 text-purple-700' : 'bg-white border-slate-100 text-slate-600'}`}>B. {balanceQuestions[balIdx].b}</button>
+            </div>
           </div>
           <div className="flex-1 min-h-0 flex flex-col mt-4 bg-slate-50/80 rounded-2xl border border-slate-200 overflow-hidden">
             <div className="bg-indigo-100 text-indigo-800 text-[11px] font-black px-4 py-2 flex justify-between"><span>💬 밸런스 토론장</span><span>{currentBalChats.length}명 참여</span></div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
               {currentBalChats.map((c: any, i: number) => {
                 const isMe = c.user === user.name; const teamInfo = KBO_TEAMS.find(t=>t.id===c.team) || KBO_TEAMS[0];
-                return (<div key={i} className={`flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}><div className={`flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}><span className={`text-[8px] font-black text-white ${teamInfo.color} px-1.5 py-0.5 rounded shadow-sm`}>{c.team}</span><span className="text-[10px] font-bold text-slate-500 cursor-pointer" onClick={()=>!isMe && onUserClick(c)}>{c.user}</span></div><div className={`text-[11px] font-bold px-4 py-2.5 rounded-2xl shadow-sm max-w-[90%] break-keep-all ${isMe ? 'bg-indigo-500 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'}`}>{c.text}</div></div>)
+                return (
+                  <div key={i} className={`flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}>
+                    <div className={`flex items-center gap-1.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}><span className={`text-[8px] font-black text-white ${teamInfo.color} px-1.5 py-0.5 rounded shadow-sm`}>{c.team}</span><span className="text-[10px] font-bold text-slate-500 cursor-pointer" onClick={()=>!isMe && onUserClick(c)}>{c.user}</span></div>
+                    <div className={`text-[11px] font-bold px-4 py-2.5 rounded-2xl shadow-sm max-w-[90%] break-keep-all ${isMe ? 'bg-indigo-500 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-700 rounded-tl-sm'}`}>{c.text}</div>
+                  </div>
+                )
               })}
               <div ref={balChatRef} />
             </div>
-            <div className="flex gap-2 p-2 bg-white border-t border-slate-200"><input id="balInput" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl outline-none text-xs px-4 py-3" placeholder="내 생각은..." onKeyDown={e=>e.key==='Enter'&&sendBalChat()} /><button onClick={sendBalChat} className="bg-indigo-500 text-white rounded-xl px-5 text-xs font-black active:scale-95 transition-all">전송</button></div>
+            <div className="flex gap-2 p-2 bg-white border-t border-slate-200">
+              <input id="balInput" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl outline-none text-xs px-4 py-3" placeholder="내 생각은..." onKeyDown={e=>e.key==='Enter'&&sendBalChat()} />
+              <button onClick={sendBalChat} className="bg-indigo-500 text-white rounded-xl px-5 text-xs font-black active:scale-95 transition-all">전송</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* --- 운세 뷰 --- */}
+      {/* --- 4. 운세 뷰 --- */}
       {gameState === 'fortune' && (
         <div className="flex-1 bg-white/90 backdrop-blur-xl rounded-3xl p-6 shadow-lg border border-white flex flex-col items-center justify-center text-center animate-in zoom-in-95">
           {!fortune ? (
@@ -1020,4 +1158,3 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
     </div>
   );
 }
-
