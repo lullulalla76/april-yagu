@@ -986,14 +986,24 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
       setStealState('done'); 
       if (navigator.vibrate) navigator.vibrate([50, 50, 50]); 
       
+      // 🔥 랭킹 1인 1기록 갱신 로직 (더 빠를 때만 덮어쓰기)
       if (user.name) {
         try {
           const rankRef = doc(db, "stealRanks", user.name);
           const rankSnap = await getDoc(rankRef);
+          
+          // DB에 기록이 아예 없거나, 기존 기록(time)이 지금 기록(currentTime)보다 느릴(클) 때만 저장!
           if (!rankSnap.exists() || rankSnap.data().time > currentTime) {
-            await setDoc(rankRef, { user: user.name, team: user.team, time: currentTime, createdAt: serverTimestamp() });
+            await setDoc(rankRef, { 
+              user: user.name, 
+              team: user.team, 
+              time: currentTime, 
+              createdAt: serverTimestamp() 
+            });
           }
-        } catch(e) {}
+        } catch(e) {
+          console.log("도루왕 랭킹 업데이트 실패:", e);
+        }
       }
     } 
   };
