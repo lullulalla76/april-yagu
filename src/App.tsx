@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from './firebase'; 
 import { 
   collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, 
-  doc, updateDoc, deleteDoc 
+  doc, updateDoc, deleteDoc, getDoc, setDoc
 } from "firebase/firestore";
 
 // --- 커스텀 훅: 로컬 스토리지 저장 (프로필 유지용) ---
@@ -54,7 +54,7 @@ export default function App() {
   const [liveChats, setLiveChats] = useState<any>({});   
   const [matesData, setMatesData] = useState<any>({ stadium: [], outside: [] }); 
   const [balanceChats, setBalanceChats] = useState<any>({}); 
-  const [dms, setDms] = useState<any[]>([]); // 🔥 진짜 실시간 DM 저장소!
+  const [dms, setDms] = useState<any[]>([]);
 
   // --- Firebase 실시간 리스너 ---
   useEffect(() => {
@@ -337,7 +337,6 @@ function HomeView({ user, schedule, setActiveTab, isLoading, homeChats }: any) {
 
 // --- 🔥 진짜 실시간 DM 목록 뷰 ---
 function DMListView({ user, dms, setActiveTab, setChatTarget }: any) {
-  // 내가 포함된 DM만 필터링해서, 대화 상대별로 마지막 메시지 추출
   const myDms = dms.filter((d: any) => d.sender === user.name || d.receiver === user.name);
   const targetsMap = new Map();
   myDms.forEach((d: any) => {
@@ -373,7 +372,6 @@ function DMChatView({ user, chatTarget, dms, setActiveTab, showToast }: any) {
   const [msg, setMsg] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
   
-  // 나와 상대방이 주고받은 메시지만 필터링
   const chatList = dms.filter((d: any) => 
     (d.sender === user.name && d.receiver === chatTarget) || 
     (d.sender === chatTarget && d.receiver === user.name)
@@ -416,7 +414,7 @@ function DMChatView({ user, chatTarget, dms, setActiveTab, showToast }: any) {
         <div ref={chatEndRef} />
       </div>
       <div className="flex gap-2 shrink-0">
-        <input className="flex-1 p-3.5 bg-white rounded-2xl outline-none text-sm shadow-sm border border-slate-100 focus:ring-2 ring-emerald-400 transition-all" placeholder="DM 메시지 입력..." value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>{if(e.key==='Enter' && !e.nativeEvent.isComposing) send()}}/>
+        <input className="flex-1 p-3.5 bg-white rounded-2xl outline-none text-sm shadow-sm border border-slate-100 focus:ring-2 ring-emerald-400 transition-all" placeholder="DM 메시지 입력..." value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>{if(e.key === 'Enter' && !e.nativeEvent.isComposing) send()}}/>
         <button onClick={send} className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white px-6 rounded-2xl font-black shadow-md active:scale-95 transition-all text-sm">전송</button>
       </div>
     </div>
@@ -633,10 +631,15 @@ function MateView({ user, onUserClick, showToast, mates }: any) {
         <button onClick={() => setViewingMateId(null)} className="text-emerald-600 font-bold text-xs mb-2 text-left shrink-0 bg-white/80 px-4 py-2 rounded-xl self-start shadow-sm border border-white">❮ 뒤로 가기</button>
         
         <div className="bg-white border border-slate-100 p-5 rounded-3xl shadow-lg flex-1 flex flex-col overflow-hidden">
-          <div className="mb-2"><span className={`text-[9px] font-black text-white ${mateTab === 'stadium' ? 'bg-emerald-600' : 'bg-orange-500'} px-2.5 py-1.5 rounded-md shadow-sm`}>{viewingMatePost.tag}</span></div>
+          <div className="mb-2">
+            <span className={`text-[9px] font-black text-white ${mateTab === 'stadium' ? 'bg-emerald-600' : 'bg-orange-500'} px-2.5 py-1.5 rounded-md shadow-sm`}>{viewingMatePost.tag}</span>
+          </div>
           <div className="flex justify-between items-start">
             <h3 className="font-black text-xl text-slate-800 mb-1 pr-10 truncate text-left w-full">{viewingMatePost.title}</h3>
-            <div className="text-right shrink-0 mt-1"><span className="text-2xl font-black text-emerald-800">{viewingMatePost.joined.length}</span><span className="text-sm font-bold text-slate-400">/{viewingMatePost.total}</span></div>
+            <div className="text-right shrink-0 mt-1">
+              <span className="text-2xl font-black text-emerald-800">{viewingMatePost.joined.length}</span>
+              <span className="text-sm font-bold text-slate-400">/{viewingMatePost.total}</span>
+            </div>
           </div>
           <p className="text-[10px] font-bold text-slate-400 mb-3 text-left cursor-pointer hover:text-emerald-500" onClick={() => onUserClick(viewingMatePost)}>작성자: @{viewingMatePost.user}</p>
           <div className="bg-slate-50 border border-slate-100 p-3 rounded-xl text-xs font-semibold text-slate-700 mb-3 shrink-0 text-left">{viewingMatePost.content}</div>
@@ -660,11 +663,12 @@ function MateView({ user, onUserClick, showToast, mates }: any) {
             {(viewingMatePost.chats || []).map((c: any, i: number) => {
               const isMe = c.user === user.name;
               return (
-              <div key={i} className={`flex flex-col gap-1 animate-in fade-in slide-in-from-bottom-2 ${isMe ? 'items-end' : 'items-start'}`}>
-                <span className="font-bold text-[9px] text-slate-500 mb-0.5 px-1">{c.user} {c.user === viewingMatePost.user && <span className="text-emerald-500 ml-0.5">(방장)</span>}</span>
-                <span className={`text-xs px-3.5 py-2 rounded-2xl shadow-sm break-words max-w-[85%] ${isMe ? 'bg-emerald-600 text-white rounded-tr-sm' : 'bg-white border text-slate-800 rounded-tl-sm'}`}>{c.text}</span>
-              </div> 
-            )})}
+                <div key={i} className={`flex flex-col gap-1 animate-in fade-in slide-in-from-bottom-2 ${isMe ? 'items-end' : 'items-start'}`}>
+                  <span className="font-bold text-[9px] text-slate-500 mb-0.5 px-1">{c.user} {c.user === viewingMatePost.user && <span className="text-emerald-500 ml-0.5">(방장)</span>}</span>
+                  <span className={`text-xs px-3.5 py-2 rounded-2xl shadow-sm break-words max-w-[85%] ${isMe ? 'bg-emerald-600 text-white rounded-tr-sm' : 'bg-white border text-slate-800 rounded-tl-sm'}`}>{c.text}</span>
+                </div> 
+              );
+            })}
             <div ref={chatEndRef} />
           </div>
 
@@ -740,8 +744,8 @@ function ProfileView({ user, setUser, isFirstVisit, setIsFirstVisit, setActiveTa
   const [tempSeat, setTempSeat] = useState(user.seat);
   const [tempWins, setTempWins] = useState(user.wins || 0);
   const [tempLosses, setTempLosses] = useState(user.losses || 0);
-  const [allUsers, setAllUsers] = useLocalStorage('yagu_all_users_pool', ['야구조아', '에이쁠', '야구광', '치맥킬러']);
-
+  const [allUsers, setAllUsers] = useLocalStorage('yagu_all_users_pool', ['야구조아', '에이쁠', '야구광']);
+  
   const totalGames = user.wins + user.losses;
   const winRate = totalGames > 0 ? Math.round((user.wins / totalGames) * 100) : 0;
   const team = KBO_TEAMS.find(t => t.id === (isEditing ? tempTeam : user.team)) || KBO_TEAMS[0];
@@ -755,100 +759,52 @@ function ProfileView({ user, setUser, isFirstVisit, setIsFirstVisit, setActiveTa
   };
 
   const save = () => {
-    const trimmedName = tempName.trim();
-    if(!trimmedName) { showToast("닉네임을 입력해주세요!"); return; }
-    if (trimmedName !== user.name && allUsers.includes(trimmedName)) {
-      showToast(`'${trimmedName}' 은(는) 이미 누가 쓰고 있어요! 😅`);
-      return;
-    }
-    if (trimmedName !== user.name) setAllUsers([...allUsers.filter((n:string)=>n!==user.name), trimmedName]);
-    setUser({ ...user, name: trimmedName, team: tempTeam, favPlayer: tempFavPlayer, seat: tempSeat, wins: tempWins, losses: tempLosses });
-    setIsEditing(false);
-    if (isFirstVisit) { setIsFirstVisit(false); setActiveTab('home'); }
-    showToast("프로필이 성공적으로 저장되었습니다! 🎉");
+    const trimmed = tempName.trim();
+    if(!trimmed) { showToast("닉네임을 입력하세요!"); return; }
+    if (trimmed !== user.name && allUsers.includes(trimmed)) { showToast("이미 사용 중인 닉네임입니다!"); return; }
+    if (trimmed !== user.name) setAllUsers([...allUsers.filter((n:string)=>n!==user.name), trimmed]);
+    setUser({ ...user, name: trimmed, team: tempTeam, favPlayer: tempFavPlayer, seat: tempSeat, wins: tempWins, losses: tempLosses });
+    setIsEditing(false); 
+    if (isFirstVisit) { setIsFirstVisit(false); setActiveTab('home'); } 
+    showToast("프로필 저장 완료!");
   };
 
   return (
     <div className="flex-1 w-full min-h-0 overflow-y-auto no-scrollbar space-y-6 animate-in fade-in pb-4 pt-2 text-center flex flex-col">
-      <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text shrink-0 leading-none">👤 내 정보</h2>
-      
-      <div className={`w-36 h-36 sm:w-40 sm:h-40 ${team.color} rounded-full mx-auto p-1.5 shadow-lg transition-all duration-500 shrink-0 z-10 border-[3px] border-white`}>
-        <div className="w-full h-full bg-white rounded-full flex items-center justify-center p-1.5 overflow-hidden shadow-inner">
+      <h2 className="title-font text-[34px] bg-gradient-to-r from-emerald-600 to-teal-600 text-transparent bg-clip-text leading-none shrink-0">👤 내 정보</h2>
+      <div className={`w-36 h-36 ${team.color} rounded-full mx-auto p-1.5 shadow-lg shrink-0 border-[3px] border-white`}>
+        <div className="w-full h-full bg-white rounded-full flex items-center justify-center p-1.5 overflow-hidden">
           <img src={team.logo} alt="" className="w-full h-full object-contain" />
         </div>
       </div>
-
       {!isEditing ? (
-        <div className="space-y-5 px-2 z-10 animate-in zoom-in-95 duration-300">
+        <div className="space-y-5 px-2 z-10 animate-in zoom-in-95">
           <div>
-            <h2 className="text-2xl font-black text-slate-800 drop-shadow-sm">{user.name}</h2>
-            <p className="text-emerald-600 font-bold text-[10px] mt-2 bg-white/90 backdrop-blur inline-block px-4 py-1.5 rounded-full border border-emerald-50 shadow-sm">{team.name} 팬</p>
+            <h2 className="text-2xl font-black text-slate-800">{user.name}</h2>
+            <p className="text-emerald-600 font-bold text-[10px] mt-2 inline-block px-4 py-1.5 rounded-full border bg-white">{team.name} 팬</p>
           </div>
-
-          <div className="bg-gradient-to-br from-emerald-600 via-green-600 to-teal-700 rounded-3xl px-6 py-6 text-white shadow-lg shadow-emerald-900/20 relative overflow-hidden w-full border border-white/20">
-            <div className="absolute top-2 right-3 opacity-10 text-7xl italic font-black uppercase">WIN</div>
-            <h3 className="text-[10px] font-black opacity-90 mb-1 tracking-[3px] uppercase text-left text-emerald-100">🔥 승요 판독 결과</h3>
-            <p className="text-2xl leading-tight font-black text-left mb-6">{getLuckLevel()}</p>
+          <div className="bg-gradient-to-br from-emerald-600 via-green-600 to-teal-700 rounded-3xl p-6 text-white text-left shadow-lg">
+            <h3 className="text-[10px] font-black opacity-90 mb-1 tracking-[3px] uppercase">🔥 승요 판독</h3>
+            <p className="text-2xl font-black mb-6">{getLuckLevel()}</p>
             <div className="flex justify-between items-end border-t border-white/20 pt-4">
-              <div className="text-left"><p className="text-3xl font-black">{user.wins}승 {user.losses}패</p><p className="text-[10px] font-bold opacity-70 mt-0.5">올해 총 {totalGames}경기 직관</p></div>
-              <div className="text-right"><p className="text-4xl font-black text-lime-200 drop-shadow-md">{winRate}%</p></div>
+              <div><p className="text-3xl font-black">{user.wins}승 {user.losses}패</p></div>
+              <div><p className="text-4xl font-black text-lime-200">{winRate}%</p></div>
             </div>
           </div>
-
-          <div className="grid grid-cols-2 gap-3 w-full">
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 mb-1.5">💖 최애 선수</p>
-              <p className="text-sm font-black text-slate-800">{user.favPlayer}</p>
-            </div>
-            <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 mb-1.5">🏟️ 선호 좌석</p>
-              <p className="text-xs font-black text-slate-800 break-keep-all">{user.seat}</p>
-            </div>
-          </div>
-          <button onClick={() => setIsEditing(true)} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-black text-sm hover:bg-slate-700 active:scale-95 transition-all shadow-md block mt-2 border border-slate-700">프로필 편집하기</button>
+          <button onClick={() => setIsEditing(true)} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-black text-sm active:scale-95">프로필 편집하기</button>
         </div>
       ) : (
-        <div className="space-y-4 px-4 bg-white/90 backdrop-blur-xl border border-white p-6 rounded-3xl text-left z-10 shadow-lg animate-in slide-in-from-bottom-4">
-          <div><p className="text-[11px] font-black text-slate-400 ml-1 mb-1.5">나만의 닉네임 (중복방지)</p><input className="w-full p-3.5 bg-white border border-slate-100 rounded-xl text-sm font-black outline-none focus:ring-2 ring-emerald-400 transition-all shadow-sm" value={tempName} onChange={e=>setTempName(e.target.value)} placeholder="닉네임 입력" /></div>
-          <div><p className="text-[11px] font-black text-slate-400 ml-1 mb-1.5">나의 최애 선수</p><input className="w-full p-3.5 bg-white border border-slate-100 rounded-xl text-sm font-black outline-none focus:ring-2 ring-emerald-400 transition-all shadow-sm" value={tempFavPlayer} onChange={e=>setTempFavPlayer(e.target.value)} placeholder="최애 선수" /></div>
-          <div><p className="text-[11px] font-black text-slate-400 ml-1 mb-1.5">가장 좋아하는 좌석</p>
-            <select className="w-full p-3.5 bg-white border border-slate-100 rounded-xl text-sm font-black outline-none appearance-none focus:ring-2 ring-emerald-400 transition-all shadow-sm" value={tempSeat} onChange={e=>setTempSeat(e.target.value)}>
-              <option>네이비석 (시야 최고 가성비)</option>
-              <option>응원단상 앞 (열정!)</option>
-              <option>테이블석 (편안/먹거리)</option>
-              <option>포수 후면석 (프리미엄)</option>
-              <option>외야석 (가성비/홈런볼)</option>
-              <option>익사이팅존 (선수 근접)</option>
-            </select>
-          </div>
-          
-          <p className="text-[11px] font-black text-slate-400 ml-1 mt-4">📊 올해 직관 전적</p>
-          <div className="flex gap-3 w-full">
-            <div className="flex-1 bg-emerald-50 py-4 px-2.5 rounded-2xl flex flex-col items-center gap-2.5 shadow-inner border border-emerald-100">
-              <p className="text-[10px] font-black text-emerald-600">WIN (승)</p>
-              <div className="flex justify-between items-center w-full px-1">
-                <button onClick={()=>setTempWins(Math.max(0, tempWins-1))} className="w-8 h-8 bg-white rounded-full text-xl font-black shadow-sm active:scale-75 transition-all text-slate-400 hover:text-emerald-500">-</button>
-                <span className="font-black text-2xl text-emerald-800 text-center">{tempWins}</span>
-                <button onClick={()=>setTempWins(tempWins+1)} className="w-8 h-8 bg-white rounded-full text-xl font-black shadow-sm active:scale-75 transition-all text-slate-400 hover:text-emerald-500">+</button>
-              </div>
-            </div>
-            <div className="flex-1 bg-red-50 py-4 px-2.5 rounded-2xl flex flex-col items-center gap-2.5 shadow-inner border border-red-100">
-              <p className="text-[10px] font-black text-red-600">LOSS (패)</p>
-              <div className="flex justify-between items-center w-full px-1">
-                <button onClick={()=>setTempLosses(Math.max(0, tempLosses-1))} className="w-8 h-8 bg-white rounded-full text-xl font-black shadow-sm active:scale-75 transition-all text-slate-400 hover:text-red-500">-</button>
-                <span className="font-black text-2xl text-red-800 text-center">{tempLosses}</span>
-                <button onClick={()=>setTempLosses(tempLosses+1)} className="w-8 h-8 bg-white rounded-full text-xl font-black shadow-sm active:scale-75 transition-all text-slate-400 hover:text-red-500">+</button>
-              </div>
+        <div className="space-y-4 px-4 bg-white/90 border p-6 rounded-3xl text-left shadow-lg">
+          <div><p className="text-[11px] font-black text-slate-400 mb-1.5 ml-1">닉네임</p><input className="w-full p-3.5 bg-white border rounded-xl text-sm font-black outline-none focus:ring-2 ring-emerald-400" value={tempName} onChange={e=>setTempName(e.target.value)} /></div>
+          <div>
+            <p className="text-[11px] font-black text-slate-400 mb-1 ml-4 mt-4">올해 직관 전적</p>
+            <div className="flex gap-3">
+              <button onClick={()=>setTempWins(Math.max(0,tempWins-1))} className="w-10 h-10 bg-white border rounded-full font-bold">-</button>
+              <span className="text-2xl font-black flex-1 text-center">{tempWins}승 {tempLosses}패</span>
+              <button onClick={()=>setTempLosses(tempLosses+1)} className="w-10 h-10 bg-white border rounded-full font-bold">+</button>
             </div>
           </div>
-
-          <p className="text-[11px] font-black text-slate-400 ml-1 mt-5">나의 응원 구단</p>
-          <div className="grid grid-cols-2 gap-2 mt-1.5">
-            {KBO_TEAMS.map(t => (
-              <button key={t.id} onClick={()=>setTempTeam(t.id)} className={`py-3 rounded-xl text-[10px] font-black transition-all ${tempTeam === t.id ? `${t.color} text-white shadow-md scale-105 border-2 border-white` : 'bg-white text-slate-500 border border-slate-100 hover:bg-slate-50'}`}> {t.name} </button>
-            ))}
-          </div>
-          <button onClick={save} className="w-full py-4 mt-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-black text-base shadow-md shadow-emerald-500/30 active:scale-95 transition-all mb-2"> 저장 완료 🚀 </button>
+          <button onClick={save} className="w-full py-4 mt-6 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-black">저장 완료 🚀</button>
         </div>
       )}
     </div>
@@ -873,13 +829,12 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
   const [clickerRanks, setClickerRanks] = useState<any[]>([]);
   const [stealRanks, setStealRanks] = useState<any[]>([]);
 
-  // 랭킹 데이터 가져오기 (Firebase)
   useEffect(() => {
     const unsubClicker = onSnapshot(query(collection(db, "clickerRanks"), orderBy("score", "desc")), (snap) => {
-      setClickerRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); // Top 5
+      setClickerRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); 
     });
     const unsubSteal = onSnapshot(query(collection(db, "stealRanks"), orderBy("time", "asc")), (snap) => {
-      setStealRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); // Top 5
+      setStealRanks(snap.docs.map(doc => doc.data()).slice(0, 5)); 
     });
     return () => { unsubClicker(); unsubSteal(); };
   }, []);
@@ -934,12 +889,20 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
   }, [clickerActive, clickerTime]);
 
   useEffect(() => {
-    // 10초가 끝나면 랭킹 등록
     if (clickerTime === 0 && clickerActive) {
       setClickerActive(false);
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200]); // 종료 알림 진동
-      if (clickerScore > 0) {
-        addDoc(collection(db, "clickerRanks"), { user: user.name, team: user.team, score: clickerScore, createdAt: serverTimestamp() }).catch(()=>{});
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]); 
+      if (clickerScore > 0 && user.name) {
+        const updateRank = async () => {
+          try {
+            const rankRef = doc(db, "clickerRanks", user.name);
+            const rankSnap = await getDoc(rankRef);
+            if (!rankSnap.exists() || rankSnap.data().score < clickerScore) {
+              await setDoc(rankRef, { user: user.name, team: user.team, score: clickerScore, createdAt: serverTimestamp() });
+            }
+          } catch(e) {}
+        };
+        updateRank();
       }
     }
   }, [clickerTime, clickerActive, clickerScore, user]);
@@ -951,7 +914,7 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
   
   const handleClicker = () => {
     if (clickerActive && clickerTime > 0) {
-      if (navigator.vibrate) navigator.vibrate(30); // 🔘 클릭할 때마다 짧은 진동!
+      if (navigator.vibrate) navigator.vibrate(30); 
       setClickerScore(prev => prev + 1);
       setPop(true); setTimeout(() => setPop(false), 100);
     }
@@ -988,18 +951,27 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
     }, delay); 
   };
   
-  const handleStealClick = () => { 
+  const handleStealClick = async () => { 
     if (stealState === 'waiting') { 
       clearTimeout(stealTimeoutRef.current); 
       setStealState('early'); 
-      if (navigator.vibrate) navigator.vibrate(300); // ❌ 앗! 실패 징-징- 진동
+      if (navigator.vibrate) navigator.vibrate(300); 
     } 
     else if (stealState === 'ready') { 
       const time = Date.now() - stealStartRef.current; 
       setStealTime(time); 
       setStealState('done'); 
-      if (navigator.vibrate) navigator.vibrate([50, 50, 50]); // 🟢 성공 경쾌한 진동
-      addDoc(collection(db, "stealRanks"), { user: user.name, team: user.team, time: time, createdAt: serverTimestamp() }).catch(()=>{});
+      if (navigator.vibrate) navigator.vibrate([50, 50, 50]); 
+      
+      if (user.name) {
+        try {
+          const rankRef = doc(db, "stealRanks", user.name);
+          const rankSnap = await getDoc(rankRef);
+          if (!rankSnap.exists() || rankSnap.data().time > time) {
+            await setDoc(rankRef, { user: user.name, team: user.team, time: time, createdAt: serverTimestamp() });
+          }
+        } catch(e) {}
+      }
     } 
   };
 
@@ -1012,7 +984,7 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
         </h2>
       </div>
 
-      {/* --- 메인 메뉴 (순서: 도루왕 -> 광클 -> 밸런스 -> 운세) --- */}
+      {/* --- 메인 메뉴 --- */}
       {gameState === 'menu' && (
         <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4 mt-2 px-1">
           {/* 1. 도루왕 */}
@@ -1045,7 +1017,7 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
         </div>
       )}
 
-      {/* --- 1. 도루왕 뷰 --- */}
+      {/* --- 도루왕 뷰 --- */}
       {gameState === 'steal' && (
         <div className="flex-1 overflow-y-auto no-scrollbar bg-white/90 backdrop-blur-xl rounded-3xl p-4 shadow-lg border border-white flex flex-col items-center animate-in zoom-in-95">
           <h3 className="font-black mb-6 text-slate-800 mt-4">빨간불에 즉시 터치!!</h3>
@@ -1057,7 +1029,6 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
             {stealState === 'done' && <div className="text-white flex flex-col items-center gap-4 animate-in zoom-in-90"><p className="font-black text-[50px]">{(stealTime / 1000).toFixed(3)}초</p><p className="text-xs bg-white text-rose-600 px-4 py-2 rounded-lg font-bold">{stealTime < 250 ? "대도 이대형 급! 🚀" : "준수합니다! 🏃‍♂️"}</p><button onClick={startSteal} className="mt-4 text-sm font-black text-slate-900 bg-white px-8 py-3 rounded-xl shadow-md">다시 시도 ↻</button></div>}
           </div>
 
-          {/* 도루왕 랭킹 */}
           <div className="w-full mt-8 bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4">
             <h4 className="text-[11px] font-black text-rose-600 mb-3 flex items-center gap-1.5"><span className="text-sm">🏆</span> 실시간 반응속도 랭킹</h4>
             {stealRanks.length === 0 && <p className="text-xs text-slate-400 font-bold py-2">첫 기록의 주인공이 되어보세요!</p>}
@@ -1074,7 +1045,7 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
         </div>
       )}
 
-      {/* --- 2. 광클 뷰 --- */}
+      {/* --- 광클 뷰 --- */}
       {gameState === 'clicker' && (
         <div className="flex-1 overflow-y-auto no-scrollbar bg-white/90 rounded-3xl p-4 shadow-lg border border-white flex flex-col items-center animate-in zoom-in-95">
           <div className="flex justify-between w-full px-4 mb-6 mt-4">
@@ -1092,7 +1063,6 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
             )}
           </div>
 
-          {/* 광클 타자 랭킹 */}
           <div className="w-full mt-6 bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-4">
             <h4 className="text-[11px] font-black text-blue-600 mb-3 flex items-center gap-1.5"><span className="text-sm">🏆</span> 실시간 타수 랭킹</h4>
             {clickerRanks.length === 0 && <p className="text-xs text-slate-400 font-bold py-2">첫 기록의 주인공이 되어보세요!</p>}
@@ -1109,7 +1079,7 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
         </div>
       )}
 
-      {/* --- 3. 밸런스 뷰 (댓글 포함) --- */}
+      {/* --- 밸런스 뷰 (댓글 포함) --- */}
       {gameState === 'balance' && (
         <div className="flex-1 flex flex-col min-h-0 bg-white/90 backdrop-blur-xl rounded-3xl p-4 shadow-lg border border-white animate-in zoom-in-95">
           <div className="shrink-0 flex flex-col items-center text-center pb-4 border-b border-slate-100">
@@ -1138,14 +1108,14 @@ function GameView({ user, setActiveTab, balanceChats, onUserClick, showToast }: 
               <div ref={balChatRef} />
             </div>
             <div className="flex gap-2 p-2 bg-white border-t border-slate-200">
-              <input id="balInput" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl outline-none text-xs px-4 py-3" placeholder="내 생각은..." onKeyDown={e=>e.key==='Enter'&&sendBalChat()} />
+              <input id="balInput" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl outline-none text-xs px-4 py-3" placeholder="내 생각은..." onKeyDown={e=>{if(e.key === 'Enter' && !e.nativeEvent.isComposing) sendBalChat()}} />
               <button onClick={sendBalChat} className="bg-indigo-500 text-white rounded-xl px-5 text-xs font-black active:scale-95 transition-all">전송</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- 4. 운세 뷰 --- */}
+      {/* --- 운세 뷰 --- */}
       {gameState === 'fortune' && (
         <div className="flex-1 bg-white/90 backdrop-blur-xl rounded-3xl p-6 shadow-lg border border-white flex flex-col items-center justify-center text-center animate-in zoom-in-95">
           {!fortune ? (
